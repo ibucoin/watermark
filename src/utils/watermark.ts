@@ -89,14 +89,15 @@ function renderSingleWatermark(
   ctx.restore();
 }
 
-// 渲染多个水印（单个模式），带可视边框
+// 渲染多个水印（单个模式），可选是否显示边框
 export function renderMultipleWatermarks(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
   config: WatermarkConfig,
   watermarks: SingleWatermark[],
-  selectedId: string | null
+  selectedId: string | null,
+  showBorder: boolean = true // 是否显示边框（导出时设为 false）
 ) {
   if (!config.text.trim() || watermarks.length === 0) return;
 
@@ -122,15 +123,17 @@ export function renderMultipleWatermarks(
     ctx.translate(x, y);
     ctx.rotate((angle * Math.PI) / 180);
 
-    // 绘制边框背景（选中时高亮）
-    const boxWidth = textWidth + padding * 2;
-    const boxHeight = textHeight + padding * 2;
-    
-    ctx.strokeStyle = isSelected ? '#3b82f6' : 'rgba(0, 0, 0, 0.3)';
-    ctx.lineWidth = isSelected ? 2 : 1;
-    ctx.setLineDash(isSelected ? [] : [4, 4]);
-    ctx.strokeRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight);
-    ctx.setLineDash([]);
+    // 绘制边框背景（仅在预览时显示，导出时不显示）
+    if (showBorder) {
+      const boxWidth = textWidth + padding * 2;
+      const boxHeight = textHeight + padding * 2;
+      
+      ctx.strokeStyle = isSelected ? '#3b82f6' : 'rgba(0, 0, 0, 0.3)';
+      ctx.lineWidth = isSelected ? 2 : 1;
+      ctx.setLineDash(isSelected ? [] : [4, 4]);
+      ctx.strokeRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight);
+      ctx.setLineDash([]);
+    }
 
     // 绘制水印文字
     ctx.fillStyle = hexToRgba(color, opacity / 100);

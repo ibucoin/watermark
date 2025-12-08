@@ -12,21 +12,17 @@ interface ImageCanvasProps {
   currentIndex: number;
   config: WatermarkConfig;
   mode: WatermarkMode;
-  // 单个模式多水印
+  // 单个模式和批量模式共用的多水印
   watermarks: SingleWatermark[];
   selectedWatermarkId: string | null;
-  // 批量模式位置
-  batchPosition: { x: number; y: number };
   anchor: AnchorPosition;
   exportFormat: ExportFormat;
   jpgQuality: number;
-  // 单个模式回调
+  // 水印操作回调
   onAddWatermark: () => void;
   onUpdateWatermarkPosition: (id: string, x: number, y: number) => void;
   onSelectWatermark: (id: string | null) => void;
   onRemoveWatermark: (id: string) => void;
-  // 批量模式回调
-  onBatchPositionChange: (position: { x: number; y: number }) => void;
   // 图片操作回调
   onImageSelect: (index: number) => void;
   onImageRemove: (index: number) => void;
@@ -42,7 +38,6 @@ export function ImageCanvas({
   mode,
   watermarks,
   selectedWatermarkId,
-  batchPosition,
   anchor,
   exportFormat,
   jpgQuality,
@@ -50,7 +45,6 @@ export function ImageCanvas({
   onUpdateWatermarkPosition,
   onSelectWatermark,
   onRemoveWatermark,
-  onBatchPositionChange,
   onImageSelect,
   onImageRemove,
   onImagesAdd,
@@ -123,21 +117,18 @@ export function ImageCanvas({
       spacing: config.spacing * newScale,
     };
 
-    if (mode === 'single') {
-      // 单个模式：渲染多个水印，带边框
-      renderMultipleWatermarks(ctx, displayWidth, displayHeight, scaledConfig, watermarks, selectedWatermarkId);
-    } else if (mode === 'batch') {
-      // 批量模式：使用拖拽位置
-      renderWatermark(ctx, displayWidth, displayHeight, scaledConfig, 'single', batchPosition, anchor);
+    if (mode === 'single' || mode === 'batch') {
+      // 单个模式和批量模式：渲染多个水印，带边框
+      renderMultipleWatermarks(ctx, displayWidth, displayHeight, scaledConfig, watermarks, selectedWatermarkId, true);
     } else {
       // 平铺模式
       renderWatermark(ctx, displayWidth, displayHeight, scaledConfig, mode, undefined, anchor);
     }
-  }, [loadedImage, config, mode, watermarks, selectedWatermarkId, batchPosition, anchor]);
+  }, [loadedImage, config, mode, watermarks, selectedWatermarkId, anchor]);
 
-  // 计算点击位置对应的水印
+  // 计算点击位置对应的水印（单个模式和批量模式都支持）
   const getWatermarkAtPosition = useCallback((x: number, y: number): string | null => {
-    if (mode !== 'single' || !loadedImage) return null;
+    if ((mode !== 'single' && mode !== 'batch') || !loadedImage) return null;
     
     // 计算文字尺寸（粗略估计）
     const fontSize = config.fontSize * scale;
@@ -172,7 +163,8 @@ export function ImageCanvas({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    if (mode === 'single') {
+    if (mode === 'single' || mode === 'batch') {
+      // 单个模式和批量模式都支持多水印操作
       const hitWatermark = getWatermarkAtPosition(x, y);
       if (hitWatermark) {
         onSelectWatermark(hitWatermark);
@@ -181,8 +173,6 @@ export function ImageCanvas({
       } else {
         onSelectWatermark(null);
       }
-    } else if (mode === 'batch') {
-      setIsDragging(true);
     }
   }, [mode, getWatermarkAtPosition, onSelectWatermark]);
 
@@ -197,12 +187,11 @@ export function ImageCanvas({
     const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
     const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
 
-    if (mode === 'single' && draggedWatermarkId) {
+    // 单个模式和批量模式都使用相同的水印拖拽逻辑
+    if ((mode === 'single' || mode === 'batch') && draggedWatermarkId) {
       onUpdateWatermarkPosition(draggedWatermarkId, x, y);
-    } else if (mode === 'batch') {
-      onBatchPositionChange({ x, y });
     }
-  }, [isDragging, mode, draggedWatermarkId, onUpdateWatermarkPosition, onBatchPositionChange]);
+  }, [isDragging, mode, draggedWatermarkId, onUpdateWatermarkPosition]);
 
   // 处理鼠标松开
   const handleMouseUp = useCallback(() => {
@@ -232,7 +221,7 @@ export function ImageCanvas({
 
     window.addEventListener('watermark:export', handleExport);
     return () => window.removeEventListener('watermark:export', handleExport);
-  }, [loadedImage, images, config, mode, watermarks, batchPosition, anchor, exportFormat, jpgQuality, isExporting]);
+  }, [loadedImage, images, config, mode, watermarks, anchor, exportFormat, jpgQuality, isExporting]);
 
   // 单张导出
   const exportSingle = async () => {
@@ -247,11 +236,11 @@ export function ImageCanvas({
 
     ctx.drawImage(loadedImage, 0, 0);
     
-    if (mode === 'single') {
-      renderMultipleWatermarks(ctx, canvas.width, canvas.height, config, watermarks, null);
-    } else if (mode === 'batch') {
-      renderWatermark(ctx, canvas.width, canvas.height, config, 'single', batchPosition, anchor);
+    if (mode === 'single' || mode === 'batch') {
+      // 单个模式和批量模式都使用多水印渲染，导出时不显示边框
+      renderMultipleWatermarks(ctx, canvas.width, canvas.height, config, watermarks, null, false);
     } else {
+      // 平铺模式
       renderWatermark(ctx, canvas.width, canvas.height, config, mode, undefined, anchor);
     }
 
@@ -278,7 +267,8 @@ export function ImageCanvas({
       if (!ctx) continue;
 
       ctx.drawImage(img, 0, 0);
-      renderWatermark(ctx, canvas.width, canvas.height, config, 'single', batchPosition, anchor);
+      // 使用多水印渲染，导出时不显示边框
+      renderMultipleWatermarks(ctx, canvas.width, canvas.height, config, watermarks, null, false);
 
       const blob = await exportImage(canvas, exportFormat, jpgQuality, '');
       zip.file(`watermarked-${i + 1}.${ext}`, blob);
@@ -343,8 +333,8 @@ export function ImageCanvas({
           onMouseLeave={handleMouseUp}
         />
         
-        {/* 单个模式：水印删除按钮覆盖层 */}
-        {mode === 'single' && loadedImage && watermarks.map((wm) => {
+        {/* 单个模式和批量模式：水印删除按钮覆盖层 */}
+        {(mode === 'single' || mode === 'batch') && loadedImage && watermarks.map((wm) => {
           const canvas = canvasRef.current;
           if (!canvas) return null;
           
@@ -432,10 +422,10 @@ export function ImageCanvas({
         <div className="text-sm text-muted-foreground">
           {image && `${image.width} × ${image.height} px`}
           {mode === 'batch' && images.length > 1 && ` · ${images.length} 张图片`}
-          {mode === 'single' && watermarks.length > 0 && ` · ${watermarks.length} 个水印`}
+          {(mode === 'single' || mode === 'batch') && watermarks.length > 0 && ` · ${watermarks.length} 个水印`}
         </div>
         <div className="flex gap-2">
-          {mode === 'single' && (
+          {(mode === 'single' || mode === 'batch') && (
             <Button variant="outline" size="sm" onClick={onAddWatermark}>
               <Plus className="w-4 h-4 mr-1" />
               添加水印

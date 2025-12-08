@@ -73,7 +73,7 @@ export function WatermarkEditor() {
     setState(prev => ({ ...prev, selectedWatermarkId: id }));
   }, []);
 
-  // 删除水印（单个模式）
+  // 删除水印
   const removeWatermark = useCallback((id: string) => {
     setState(prev => ({
       ...prev,
@@ -81,12 +81,6 @@ export function WatermarkEditor() {
       selectedWatermarkId: prev.selectedWatermarkId === id ? null : prev.selectedWatermarkId,
     }));
   }, []);
-
-  // 更新批量模式位置
-  const setBatchPosition = useCallback((position: { x: number; y: number }) => {
-    setState(prev => ({ ...prev, batchPosition: position }));
-  }, []);
-
 
   // 添加图片（带长宽比校验）
   const addImages = useCallback((newImages: ImageData[]) => {
@@ -196,7 +190,6 @@ export function WatermarkEditor() {
               mode={state.mode}
               watermarks={state.watermarks}
               selectedWatermarkId={state.selectedWatermarkId}
-              batchPosition={state.batchPosition}
               anchor={state.anchor}
               exportFormat={state.exportFormat}
               jpgQuality={state.jpgQuality}
@@ -204,7 +197,6 @@ export function WatermarkEditor() {
               onUpdateWatermarkPosition={updateWatermarkPosition}
               onSelectWatermark={selectWatermark}
               onRemoveWatermark={removeWatermark}
-              onBatchPositionChange={setBatchPosition}
               onImageSelect={setCurrentImageIndex}
               onImageRemove={removeImage}
               onImagesAdd={addImages}
