@@ -1,29 +1,33 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
-import type { ImageData, WatermarkConfig, WatermarkMode, AnchorPosition, ExportFormat, SingleWatermark } from '@/types/watermark';
-import { renderWatermark, renderMultipleWatermarks, exportImage, downloadBlob } from '@/utils/watermark';
+import type { ImageData, TextBox, TextBoxStyle, TileWatermarkConfig, ExportFormat } from '@/types/watermark';
+import { renderTileWatermark, renderTextBoxes, getTextBoxAtPosition, getHandleAtPosition, exportImage, downloadBlob, type HandleType } from '@/utils/watermark';
 import { Button } from '@/components/ui/button';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { Slider } from '@/components/ui/slider';
+import { X, Plus, Trash2, ZoomIn, ZoomOut, Type, Palette, Eye, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import JSZip from 'jszip';
+
+// 预设颜色
+const presetColors = [
+  '#000000', '#333333', '#666666', '#999999', '#cccccc', '#ffffff',
+  '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6',
+];
 
 interface ImageCanvasProps {
   image: ImageData;
   images: ImageData[];
   currentIndex: number;
-  config: WatermarkConfig;
-  mode: WatermarkMode;
-  // 单个模式和批量模式共用的多水印
-  watermarks: SingleWatermark[];
-  selectedWatermarkId: string | null;
-  anchor: AnchorPosition;
+  textBoxes: TextBox[];
+  selectedTextBoxId: string | null;
+  selectedTextBox: TextBox | undefined;
+  tileConfig: TileWatermarkConfig;
   exportFormat: ExportFormat;
   jpgQuality: number;
-  // 水印操作回调
-  onAddWatermark: () => void;
-  onUpdateWatermarkPosition: (id: string, x: number, y: number) => void;
-  onSelectWatermark: (id: string | null) => void;
-  onRemoveWatermark: (id: string) => void;
-  // 图片操作回调
+  onSelectTextBox: (id: string | null) => void;
+  onUpdateTextBox: (id: string, updates: Partial<TextBox>) => void;
+  onUpdateTextBoxStyle: (id: string, updates: Partial<TextBoxStyle>) => void;
+  onDuplicateTextBox: (id: string) => void;
+  onRemoveTextBox: (id: string) => void;
   onImageSelect: (index: number) => void;
   onImageRemove: (index: number) => void;
   onImagesAdd: (images: ImageData[]) => void;
@@ -34,17 +38,17 @@ export function ImageCanvas({
   image,
   images,
   currentIndex,
-  config,
-  mode,
-  watermarks,
-  selectedWatermarkId,
-  anchor,
+  textBoxes,
+  selectedTextBoxId,
+  selectedTextBox,
+  tileConfig,
   exportFormat,
   jpgQuality,
-  onAddWatermark,
-  onUpdateWatermarkPosition,
-  onSelectWatermark,
-  onRemoveWatermark,
+  onSelectTextBox,
+  onUpdateTextBox,
+  onUpdateTextBoxStyle,
+  onDuplicateTextBox,
+  onRemoveTextBox,
   onImageSelect,
   onImageRemove,
   onImagesAdd,
@@ -52,18 +56,46 @@ export function ImageCanvas({
 }: ImageCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [draggedWatermarkId, setDraggedWatermarkId] = useState<string | null>(null);
+  const [dragHandle, setDragHandle] = useState<HandleType>(null);
+  const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
   const [isExporting, setIsExporting] = useState(false);
-  const [scale, setScale] = useState(1);
+  const [zoom, setZoom] = useState(100); // 缩放百分比
+  const [fitZoom, setFitZoom] = useState(100); // 适配容器的缩放值
+  const [isEditing, setIsEditing] = useState(false); // 是否正在编辑文本
+  const [editingText, setEditingText] = useState(''); // 编辑中的文本
 
-  // 加载图片
+  // 计算实际缩放比例（基于适配缩放）
+  const scale = (fitZoom / 100) * (zoom / 100);
+
+  // 加载图片并计算适配缩放
   useEffect(() => {
     if (!image) return;
 
     const img = new Image();
-    img.onload = () => setLoadedImage(img);
+    img.onload = () => {
+      setLoadedImage(img);
+      
+      // 计算适配容器的缩放比例
+      const container = containerRef.current;
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        const maxWidth = containerRect.width - 32;
+        const maxHeight = containerRect.height - 32;
+        
+        const fitScale = Math.min(
+          maxWidth / img.naturalWidth,
+          maxHeight / img.naturalHeight,
+          1 // 不放大
+        );
+        setFitZoom(fitScale * 100);
+      }
+      
+      // 重置缩放到 100%
+      setZoom(100);
+    };
     img.src = image.url;
 
     return () => {
@@ -80,82 +112,121 @@ export function ImageCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // 获取设备像素比，用于高 DPI 屏幕清晰渲染
     const dpr = window.devicePixelRatio || 1;
 
-    // 计算缩放比例以适应容器
-    const containerRect = container.getBoundingClientRect();
-    const maxWidth = containerRect.width - 32;
-    const maxHeight = containerRect.height - 32;
-    
-    const newScale = Math.min(
-      maxWidth / loadedImage.naturalWidth,
-      maxHeight / loadedImage.naturalHeight,
-      1 // 不放大
-    );
-    setScale(newScale);
+    const displayWidth = loadedImage.naturalWidth * scale;
+    const displayHeight = loadedImage.naturalHeight * scale;
 
-    const displayWidth = loadedImage.naturalWidth * newScale;
-    const displayHeight = loadedImage.naturalHeight * newScale;
-
-    // Canvas 实际尺寸乘以像素比，CSS 尺寸保持不变
     canvas.width = displayWidth * dpr;
     canvas.height = displayHeight * dpr;
     canvas.style.width = `${displayWidth}px`;
     canvas.style.height = `${displayHeight}px`;
 
-    // 应用缩放变换，使绑定操作按 CSS 尺寸进行
     ctx.scale(dpr, dpr);
 
     // 绘制图片
     ctx.drawImage(loadedImage, 0, 0, displayWidth, displayHeight);
 
-    // 渲染水印（按比例缩放配置）
-    const scaledConfig = {
-      ...config,
-      fontSize: config.fontSize * newScale,
-      spacing: config.spacing * newScale,
-    };
-
-    if (mode === 'single' || mode === 'batch') {
-      // 单个模式和批量模式：渲染多个水印，带边框
-      renderMultipleWatermarks(ctx, displayWidth, displayHeight, scaledConfig, watermarks, selectedWatermarkId, true);
-    } else {
-      // 平铺模式
-      renderWatermark(ctx, displayWidth, displayHeight, scaledConfig, mode, undefined, anchor);
+    // 渲染平铺水印
+    if (tileConfig.enabled) {
+      const scaledTileConfig = {
+        ...tileConfig,
+        fontSize: tileConfig.fontSize * scale,
+        spacing: tileConfig.spacing * scale,
+      };
+      renderTileWatermark(ctx, displayWidth, displayHeight, scaledTileConfig);
     }
-  }, [loadedImage, config, mode, watermarks, selectedWatermarkId, anchor]);
 
-  // 计算点击位置对应的水印（单个模式和批量模式都支持）
-  const getWatermarkAtPosition = useCallback((x: number, y: number): string | null => {
-    if ((mode !== 'single' && mode !== 'batch') || !loadedImage) return null;
+    // 渲染文本框（按比例缩放）
+    const scaledTextBoxes = textBoxes.map(tb => ({
+      ...tb,
+      style: {
+        ...tb.style,
+        fontSize: tb.style.fontSize * scale,
+      },
+    }));
+    renderTextBoxes(ctx, displayWidth, displayHeight, scaledTextBoxes, selectedTextBoxId, true);
+  }, [loadedImage, textBoxes, selectedTextBoxId, tileConfig, scale]);
+
+  // 处理双击编辑
+  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !loadedImage) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // 检查是否双击了文本框
+    const scaledTextBoxes = textBoxes.map(tb => ({
+      ...tb,
+      style: { ...tb.style, fontSize: tb.style.fontSize * scale },
+    }));
+    const clickedBox = getTextBoxAtPosition(x, y, rect.width, rect.height, scaledTextBoxes);
     
-    // 计算文字尺寸（粗略估计）
-    const fontSize = config.fontSize * scale;
-    const textWidth = config.text.length * fontSize * 0.6;
-    const textHeight = fontSize;
-    const hitPadding = 20; // 点击区域扩展
-
-    // 从后往前检查（后添加的在上层）
-    for (let i = watermarks.length - 1; i >= 0; i--) {
-      const wm = watermarks[i];
-      const wmX = (wm.x / 100) * (loadedImage.naturalWidth * scale);
-      const wmY = (wm.y / 100) * (loadedImage.naturalHeight * scale);
-      
-      if (
-        x >= wmX - textWidth / 2 - hitPadding &&
-        x <= wmX + textWidth / 2 + hitPadding &&
-        y >= wmY - textHeight / 2 - hitPadding &&
-        y <= wmY + textHeight / 2 + hitPadding
-      ) {
-        return wm.id;
-      }
+    if (clickedBox) {
+      setIsEditing(true);
+      setEditingText(clickedBox.text);
+      onSelectTextBox(clickedBox.id);
+      // 聚焦输入框
+      setTimeout(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }, 0);
     }
-    return null;
-  }, [mode, loadedImage, config, scale, watermarks]);
+  }, [loadedImage, textBoxes, scale, onSelectTextBox]);
 
   // 处理鼠标按下
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isEditing) return; // 编辑模式下不处理拖拽
+
+    const canvas = canvasRef.current;
+    if (!canvas || !loadedImage) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // 如果有选中的文本框，检查是否点击了控制手柄
+    if (selectedTextBoxId) {
+      const selectedBox = textBoxes.find(tb => tb.id === selectedTextBoxId);
+      if (selectedBox) {
+        const scaledBox = {
+          ...selectedBox,
+          style: { ...selectedBox.style, fontSize: selectedBox.style.fontSize * scale },
+        };
+        const handle = getHandleAtPosition(x, y, rect.width, rect.height, scaledBox);
+        if (handle) {
+          setDragHandle(handle);
+          setDragStartPos({ x, y });
+          setIsDragging(true);
+          return;
+        }
+      }
+    }
+
+    // 检查是否点击了文本框
+    const scaledTextBoxes = textBoxes.map(tb => ({
+      ...tb,
+      style: { ...tb.style, fontSize: tb.style.fontSize * scale },
+    }));
+    const clickedBox = getTextBoxAtPosition(x, y, rect.width, rect.height, scaledTextBoxes);
+    
+    if (clickedBox) {
+      onSelectTextBox(clickedBox.id);
+      setDragHandle('move');
+      setDragStartPos({ x, y });
+      setIsDragging(true);
+    } else {
+      onSelectTextBox(null);
+      setIsEditing(false);
+    }
+  }, [isEditing, loadedImage, textBoxes, selectedTextBoxId, scale, onSelectTextBox]);
+
+  // 处理鼠标移动
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDragging || !selectedTextBoxId || !dragHandle) return;
+    
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -163,41 +234,56 @@ export function ImageCanvas({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    if (mode === 'single' || mode === 'batch') {
-      // 单个模式和批量模式都支持多水印操作
-      const hitWatermark = getWatermarkAtPosition(x, y);
-      if (hitWatermark) {
-        onSelectWatermark(hitWatermark);
-        setDraggedWatermarkId(hitWatermark);
-        setIsDragging(true);
-      } else {
-        onSelectWatermark(null);
-      }
+    const selectedBox = textBoxes.find(tb => tb.id === selectedTextBoxId);
+    if (!selectedBox) return;
+
+    if (dragHandle === 'move') {
+      // 移动文本框
+      const deltaX = ((x - dragStartPos.x) / rect.width) * 100;
+      const deltaY = ((y - dragStartPos.y) / rect.height) * 100;
+      
+      const newX = Math.max(5, Math.min(95, selectedBox.x + deltaX));
+      const newY = Math.max(5, Math.min(95, selectedBox.y + deltaY));
+      
+      onUpdateTextBox(selectedTextBoxId, { x: newX, y: newY });
+      setDragStartPos({ x, y });
+    } else if (dragHandle === 'rotate') {
+      // 旋转文本框
+      const centerX = (selectedBox.x / 100) * rect.width;
+      const centerY = (selectedBox.y / 100) * rect.height;
+      const angle = Math.atan2(y - centerY, x - centerX) * (180 / Math.PI) + 90;
+      onUpdateTextBox(selectedTextBoxId, { angle: Math.round(angle) });
+    } else if (dragHandle?.startsWith('resize')) {
+      // 调整大小
+      const deltaX = x - dragStartPos.x;
+      const newWidth = Math.max(10, Math.min(80, selectedBox.width + (deltaX / rect.width) * 100));
+      onUpdateTextBox(selectedTextBoxId, { width: newWidth });
+      setDragStartPos({ x, y });
     }
-  }, [mode, getWatermarkAtPosition, onSelectWatermark]);
-
-  // 处理鼠标移动
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging) return;
-    
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-    const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-
-    // 单个模式和批量模式都使用相同的水印拖拽逻辑
-    if ((mode === 'single' || mode === 'batch') && draggedWatermarkId) {
-      onUpdateWatermarkPosition(draggedWatermarkId, x, y);
-    }
-  }, [isDragging, mode, draggedWatermarkId, onUpdateWatermarkPosition]);
+  }, [isDragging, selectedTextBoxId, dragHandle, dragStartPos, textBoxes, onUpdateTextBox]);
 
   // 处理鼠标松开
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
-    setDraggedWatermarkId(null);
+    setDragHandle(null);
   }, []);
+
+  // 处理文本编辑完成
+  const handleEditComplete = useCallback(() => {
+    if (selectedTextBoxId && editingText !== undefined) {
+      onUpdateTextBox(selectedTextBoxId, { text: editingText });
+    }
+    setIsEditing(false);
+  }, [selectedTextBoxId, editingText, onUpdateTextBox]);
+
+  // 处理键盘事件
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleEditComplete();
+    } else if (e.key === 'Escape') {
+      setIsEditing(false);
+    }
+  }, [handleEditComplete]);
 
   // 导出处理
   useEffect(() => {
@@ -206,7 +292,7 @@ export function ImageCanvas({
       setIsExporting(true);
 
       try {
-        if (mode === 'batch' && images.length > 1) {
+        if (images.length > 1) {
           await exportBatch();
         } else {
           await exportSingle();
@@ -221,11 +307,18 @@ export function ImageCanvas({
 
     window.addEventListener('watermark:export', handleExport);
     return () => window.removeEventListener('watermark:export', handleExport);
-  }, [loadedImage, images, config, mode, watermarks, anchor, exportFormat, jpgQuality, isExporting]);
+  }, [loadedImage, images, textBoxes, tileConfig, exportFormat, jpgQuality, isExporting]);
+
+  // 获取文件名（不含扩展名）
+  const getFileName = (file: File): string => {
+    const name = file.name;
+    const lastDot = name.lastIndexOf('.');
+    return lastDot > 0 ? name.substring(0, lastDot) : name;
+  };
 
   // 单张导出
   const exportSingle = async () => {
-    if (!loadedImage) return;
+    if (!loadedImage || !image) return;
 
     const canvas = document.createElement('canvas');
     canvas.width = loadedImage.naturalWidth;
@@ -236,17 +329,18 @@ export function ImageCanvas({
 
     ctx.drawImage(loadedImage, 0, 0);
     
-    if (mode === 'single' || mode === 'batch') {
-      // 单个模式和批量模式都使用多水印渲染，导出时不显示边框
-      renderMultipleWatermarks(ctx, canvas.width, canvas.height, config, watermarks, null, false);
-    } else {
-      // 平铺模式
-      renderWatermark(ctx, canvas.width, canvas.height, config, mode, undefined, anchor);
+    // 渲染平铺水印
+    if (tileConfig.enabled) {
+      renderTileWatermark(ctx, canvas.width, canvas.height, tileConfig);
     }
+    
+    // 渲染文本框（不显示控制手柄）
+    renderTextBoxes(ctx, canvas.width, canvas.height, textBoxes, null, false);
 
     const ext = exportFormat === 'png' ? 'png' : 'jpg';
-    const blob = await exportImage(canvas, exportFormat, jpgQuality, 'watermarked');
-    downloadBlob(blob, `watermarked-${Date.now()}.${ext}`);
+    const originalName = getFileName(image.file);
+    const blob = await exportImage(canvas, exportFormat, jpgQuality, '');
+    downloadBlob(blob, `${originalName}.${ext}`);
   };
 
   // 批量导出
@@ -255,8 +349,9 @@ export function ImageCanvas({
     const ext = exportFormat === 'png' ? 'png' : 'jpg';
 
     for (let i = 0; i < images.length; i++) {
+      const imgData = images[i];
       const img = new Image();
-      img.src = images[i].url;
+      img.src = imgData.url;
       await new Promise((resolve) => { img.onload = resolve; });
 
       const canvas = document.createElement('canvas');
@@ -267,11 +362,18 @@ export function ImageCanvas({
       if (!ctx) continue;
 
       ctx.drawImage(img, 0, 0);
-      // 使用多水印渲染，导出时不显示边框
-      renderMultipleWatermarks(ctx, canvas.width, canvas.height, config, watermarks, null, false);
+      
+      // 渲染平铺水印
+      if (tileConfig.enabled) {
+        renderTileWatermark(ctx, canvas.width, canvas.height, tileConfig);
+      }
+      
+      // 渲染文本框
+      renderTextBoxes(ctx, canvas.width, canvas.height, textBoxes, null, false);
 
+      const originalName = getFileName(imgData.file);
       const blob = await exportImage(canvas, exportFormat, jpgQuality, '');
-      zip.file(`watermarked-${i + 1}.${ext}`, blob);
+      zip.file(`${originalName}.${ext}`, blob);
     }
 
     const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -283,7 +385,7 @@ export function ImageCanvas({
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/png,image/jpeg,image/jpg,image/webp';
-    input.multiple = mode === 'batch';
+    input.multiple = true;
     
     input.onchange = async (e) => {
       const files = (e.target as HTMLInputElement).files;
@@ -312,72 +414,204 @@ export function ImageCanvas({
     };
     
     input.click();
-  }, [mode, onImagesAdd]);
+  }, [onImagesAdd]);
+
+  // 计算编辑框位置
+  const getEditInputPosition = useCallback(() => {
+    if (!selectedTextBoxId || !canvasRef.current || !containerRef.current) return null;
+    
+    const selectedBox = textBoxes.find(tb => tb.id === selectedTextBoxId);
+    if (!selectedBox) return null;
+
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    const canvasRect = canvas.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+
+    const offsetX = canvasRect.left - containerRect.left;
+    const offsetY = canvasRect.top - containerRect.top;
+
+    const x = offsetX + (selectedBox.x / 100) * canvasRect.width;
+    const y = offsetY + (selectedBox.y / 100) * canvasRect.height;
+
+    return { x, y };
+  }, [selectedTextBoxId, textBoxes]);
+
+  const editPosition = getEditInputPosition();
 
   return (
-    <div className="h-full flex flex-col gap-4">
+    <div className="h-full flex flex-col gap-3">
+      {/* 顶部工具区：缩放控制 + 浮动工具栏 */}
+      <div className="flex items-center justify-between gap-4 py-2 px-4 bg-card rounded-lg border">
+        {/* 缩放控制 */}
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setZoom(Math.max(10, zoom - 10))}
+            disabled={zoom <= 10}
+          >
+            <ZoomOut className="w-4 h-4" />
+          </Button>
+          <div className="flex items-center gap-2 w-36">
+            <Slider
+              value={[zoom]}
+              min={10}
+              max={300}
+              step={5}
+              onValueChange={([value]) => setZoom(value)}
+            />
+            <span className="text-sm text-muted-foreground w-12">{zoom}%</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setZoom(Math.min(300, zoom + 10))}
+            disabled={zoom >= 300}
+          >
+            <ZoomIn className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setZoom(100)}
+          >
+            适配
+          </Button>
+        </div>
+
+        {/* 浮动工具栏 - 选中文本框时显示 */}
+        {selectedTextBox && (
+          <div className="flex items-center divide-x border-l pl-4">
+            {/* 字体大小 */}
+            <div className="flex items-center gap-2 pr-4">
+              <Type className="w-4 h-4 text-muted-foreground" />
+              <div className="w-24">
+                <Slider
+                  value={[selectedTextBox.style.fontSize]}
+                  min={12}
+                  max={200}
+                  step={1}
+                  onValueChange={([value]) => onUpdateTextBoxStyle(selectedTextBox.id, { fontSize: value })}
+                />
+              </div>
+              <span className="text-sm text-muted-foreground w-10">{selectedTextBox.style.fontSize}px</span>
+            </div>
+
+            {/* 文字颜色 */}
+            <div className="flex items-center gap-2 px-4">
+              <Palette className="w-4 h-4 text-muted-foreground" />
+              <div className="flex gap-1">
+                {presetColors.slice(0, 6).map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={`w-5 h-5 rounded border transition-all ${
+                      selectedTextBox.style.color === color 
+                        ? 'border-primary ring-1 ring-primary' 
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                    style={{ backgroundColor: color }}
+                    onClick={() => onUpdateTextBoxStyle(selectedTextBox.id, { color })}
+                  />
+                ))}
+                <div className="relative">
+                  <input
+                    type="color"
+                    value={selectedTextBox.style.color}
+                    onChange={(e) => onUpdateTextBoxStyle(selectedTextBox.id, { color: e.target.value })}
+                    className="absolute inset-0 w-5 h-5 opacity-0 cursor-pointer"
+                  />
+                  <div 
+                    className="w-5 h-5 rounded border border-gray-300"
+                    style={{ 
+                      background: `conic-gradient(red, yellow, lime, aqua, blue, magenta, red)` 
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 透明度 */}
+            <div className="flex items-center gap-2 px-4">
+              <Eye className="w-4 h-4 text-muted-foreground" />
+              <div className="w-16">
+                <Slider
+                  value={[selectedTextBox.style.opacity]}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onValueChange={([value]) => onUpdateTextBoxStyle(selectedTextBox.id, { opacity: value })}
+                />
+              </div>
+              <span className="text-sm text-muted-foreground w-8">{selectedTextBox.style.opacity}%</span>
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="flex items-center gap-1 pl-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onDuplicateTextBox(selectedTextBox.id)}
+                title="复制"
+                className="h-7 w-7 p-0"
+              >
+                <Copy className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onRemoveTextBox(selectedTextBox.id)}
+                className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                title="删除"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Canvas 预览区域 */}
       <div
         ref={containerRef}
-        className="flex-1 flex items-center justify-center bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2210%22%20height%3D%2210%22%20fill%3D%22%23f0f0f0%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2210%22%20width%3D%2210%22%20height%3D%2210%22%20fill%3D%22%23f0f0f0%22%2F%3E%3C%2Fsvg%3E')] rounded-lg overflow-hidden relative"
+        className="flex-1 flex items-center justify-center bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2210%22%20height%3D%2210%22%20fill%3D%22%23f0f0f0%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2210%22%20width%3D%2210%22%20height%3D%2210%22%20fill%3D%22%23f0f0f0%22%2F%3E%3C%2Fsvg%3E')] rounded-lg overflow-auto relative"
       >
         <canvas
           ref={canvasRef}
           className={cn(
             'shadow-lg',
-            (mode === 'single' || mode === 'batch') && 'cursor-move'
+            isDragging ? 'cursor-grabbing' : 'cursor-default'
           )}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          onDoubleClick={handleDoubleClick}
         />
-        
-        {/* 单个模式和批量模式：水印删除按钮覆盖层 */}
-        {(mode === 'single' || mode === 'batch') && loadedImage && watermarks.map((wm) => {
-          const canvas = canvasRef.current;
-          if (!canvas) return null;
-          
-          const canvasRect = canvas.getBoundingClientRect();
-          const containerRect = containerRef.current?.getBoundingClientRect();
-          if (!containerRect) return null;
-          
-          // 计算水印在容器中的位置
-          const offsetX = (containerRect.width - canvasRect.width) / 2;
-          const offsetY = (containerRect.height - canvasRect.height) / 2;
-          const wmX = offsetX + (wm.x / 100) * canvasRect.width;
-          const wmY = offsetY + (wm.y / 100) * canvasRect.height;
-          
-          const isSelected = wm.id === selectedWatermarkId;
-          
-          return (
-            <button
-              key={wm.id}
-              type="button"
-              className={cn(
-                'absolute w-5 h-5 rounded-full flex items-center justify-center transition-all',
-                isSelected 
-                  ? 'bg-destructive text-destructive-foreground opacity-100' 
-                  : 'bg-muted text-muted-foreground opacity-0 hover:opacity-100'
-              )}
-              style={{
-                left: wmX + 20,
-                top: wmY - 30,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemoveWatermark(wm.id);
-              }}
-              title="删除水印"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          );
-        })}
+
+        {/* 文本编辑输入框 */}
+        {isEditing && editPosition && (
+          <input
+            ref={inputRef}
+            type="text"
+            value={editingText}
+            onChange={(e) => setEditingText(e.target.value)}
+            onBlur={handleEditComplete}
+            onKeyDown={handleKeyDown}
+            className="absolute bg-white border-2 border-primary rounded px-2 py-1 text-center outline-none shadow-lg"
+            style={{
+              left: editPosition.x,
+              top: editPosition.y,
+              transform: 'translate(-50%, -50%)',
+              minWidth: '100px',
+            }}
+          />
+        )}
       </div>
 
-      {/* 批量模式缩略图 */}
-      {mode === 'batch' && images.length > 0 && (
+      {/* 底部缩略图 */}
+      {images.length > 0 && (
         <div className="flex gap-2 p-2 bg-card rounded-lg overflow-x-auto">
           {images.map((img, index) => (
             <div
@@ -417,29 +651,18 @@ export function ImageCanvas({
         </div>
       )}
 
-      {/* 操作按钮 */}
+      {/* 底部信息栏 */}
       <div className="flex justify-between items-center">
         <div className="text-sm text-muted-foreground">
           {image && `${image.width} × ${image.height} px`}
-          {mode === 'batch' && images.length > 1 && ` · ${images.length} 张图片`}
-          {(mode === 'single' || mode === 'batch') && watermarks.length > 0 && ` · ${watermarks.length} 个水印`}
+          {images.length > 1 && ` · ${images.length} 张图片`}
+          {textBoxes.length > 0 && ` · ${textBoxes.length} 个文本框`}
+          <span className="ml-2 text-xs">(双击文本框可编辑文字)</span>
         </div>
-        <div className="flex gap-2">
-          {(mode === 'single' || mode === 'batch') && (
-            <Button variant="outline" size="sm" onClick={onAddWatermark}>
-              <Plus className="w-4 h-4 mr-1" />
-              添加水印
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={handleAddMore}>
-            <Plus className="w-4 h-4 mr-1" />
-            {mode === 'batch' ? '添加图片' : '更换图片'}
-          </Button>
-          <Button variant="outline" size="sm" onClick={onClearImages}>
-            <Trash2 className="w-4 h-4 mr-1" />
-            清除
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" onClick={onClearImages}>
+          <Trash2 className="w-4 h-4 mr-1" />
+          清除全部
+        </Button>
       </div>
     </div>
   );

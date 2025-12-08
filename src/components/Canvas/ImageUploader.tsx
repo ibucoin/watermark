@@ -1,20 +1,18 @@
 import { useCallback, useState } from 'react';
-import type { ImageData, WatermarkMode } from '@/types/watermark';
+import type { ImageData } from '@/types/watermark';
 import { Button } from '@/components/ui/button';
 import { Upload, ImagePlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ImageUploaderProps {
   onImagesAdd: (images: ImageData[]) => void;
-  mode: WatermarkMode;
-  existingImages?: ImageData[];
 }
 
 // 支持的图片格式
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
-export function ImageUploader({ onImagesAdd, mode, existingImages = [] }: ImageUploaderProps) {
+export function ImageUploader({ onImagesAdd }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,12 +37,9 @@ export function ImageUploader({ onImagesAdd, mode, existingImages = [] }: ImageU
 
     if (validFiles.length === 0) return;
 
-    // 非批量模式只取第一张
-    const filesToProcess = mode === 'batch' ? validFiles : [validFiles[0]];
-
     // 加载图片获取尺寸
     const imageDataList: ImageData[] = await Promise.all(
-      filesToProcess.map(async (file) => {
+      validFiles.map(async (file) => {
         const url = URL.createObjectURL(file);
         const img = new Image();
         
@@ -63,7 +58,7 @@ export function ImageUploader({ onImagesAdd, mode, existingImages = [] }: ImageU
     );
 
     onImagesAdd(imageDataList);
-  }, [mode, onImagesAdd]);
+  }, [onImagesAdd]);
 
   // 拖拽事件处理
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -90,7 +85,7 @@ export function ImageUploader({ onImagesAdd, mode, existingImages = [] }: ImageU
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = ACCEPTED_TYPES.join(',');
-    input.multiple = mode === 'batch';
+    input.multiple = true;
     
     input.onchange = (e) => {
       const files = (e.target as HTMLInputElement).files;
@@ -100,7 +95,7 @@ export function ImageUploader({ onImagesAdd, mode, existingImages = [] }: ImageU
     };
     
     input.click();
-  }, [mode, processFiles]);
+  }, [processFiles]);
 
   return (
     <div
@@ -120,14 +115,12 @@ export function ImageUploader({ onImagesAdd, mode, existingImages = [] }: ImageU
         </div>
         
         <div className="space-y-2">
-          <h3 className="text-lg font-medium">
-            {mode === 'batch' ? '上传多张图片' : '上传图片'}
-          </h3>
+          <h3 className="text-lg font-medium">上传图片</h3>
           <p className="text-sm text-muted-foreground">
             拖拽图片到此处，或点击下方按钮选择
           </p>
           <p className="text-xs text-muted-foreground">
-            支持 PNG、JPG、WebP 格式，单文件最大 50MB
+            支持 PNG、JPG、WebP 格式，单文件最大 50MB，支持多选
           </p>
         </div>
 
@@ -143,4 +136,3 @@ export function ImageUploader({ onImagesAdd, mode, existingImages = [] }: ImageU
     </div>
   );
 }
-
