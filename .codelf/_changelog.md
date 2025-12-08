@@ -1,3 +1,32 @@
+## 2025-12-08 16:00:00
+
+### 1. 创建水印编辑器 UI 提案
+
+**Change Type**: docs
+
+> **Purpose**: 规划图片水印编辑器页面的功能和实现方案
+> **Detailed Description**: 创建 OpenSpec 变更提案，包含 proposal.md、design.md、tasks.md 和 spec.md，详细描述页面布局、三种水印模式、组件结构和实现任务
+> **Reason for Change**: 为后续开发提供清晰的规范和任务清单
+> **Impact Scope**: 无代码影响，仅规范文档
+> **API Changes**: 无
+> **Configuration Changes**: 无
+> **Performance Impact**: 无
+
+   ```
+   root
+   - openspec
+       - changes
+           - add-watermark-editor-ui  // add: 水印编辑器 UI 变更提案
+               - proposal.md          // add: 变更说明
+               - design.md            // add: 技术设计文档
+               - tasks.md             // add: 实现任务清单
+               - specs
+                   - watermark-editor
+                       - spec.md      // add: 功能规范
+   ```
+
+---
+
 ## 2025-12-08 15:30:00
 
 ### 1. 初始化项目文档

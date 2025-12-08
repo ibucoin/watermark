@@ -22,7 +22,8 @@ Purpose
 - **语言**: TypeScript (严格模式)
 - **包管理器**: Bun
 - **图片处理**: Canvas API (浏览器原生)
-- **样式**: 原生 CSS (Astro scoped styles)
+- **样式**: TailwindCSS + shadcn/ui 组件库
+- **交互框架**: React (配合 Astro Islands)
 
 ### 核心技术选型理由
 - Astro: 纯静态部署，零服务器成本，SEO 友好
@@ -80,5 +81,8 @@ Purpose
 
 ## External Dependencies
 - **Astro**: 静态站点框架
+- **React**: 交互组件框架
+- **shadcn/ui**: UI 组件库（Button, Input, Slider, Card, Tabs 等）
+- **TailwindCSS**: CSS 工具类框架
+- **JSZip**: 批量导出 zip 打包
 - **Canvas API**: 浏览器原生图片处理能力
-- 暂无其他外部服务依赖
