@@ -1,4 +1,4 @@
-import type { WatermarkConfig, WatermarkMode, AnchorPosition } from '@/types/watermark';
+import type { WatermarkConfig, WatermarkMode, AnchorPosition, SingleWatermark } from '@/types/watermark';
 
 // 渲染水印到 Canvas
 export function renderWatermark(
@@ -87,6 +87,62 @@ function renderSingleWatermark(
   ctx.rotate((angle * Math.PI) / 180);
   ctx.fillText(text, 0, 0);
   ctx.restore();
+}
+
+// 渲染多个水印（单个模式），带可视边框
+export function renderMultipleWatermarks(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  config: WatermarkConfig,
+  watermarks: SingleWatermark[],
+  selectedId: string | null
+) {
+  if (!config.text.trim() || watermarks.length === 0) return;
+
+  const { text, fontSize, angle, color, opacity } = config;
+  
+  // 设置字体
+  ctx.font = `${fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // 计算文字尺寸
+  const metrics = ctx.measureText(text);
+  const textWidth = metrics.width;
+  const textHeight = fontSize;
+  const padding = 8;
+
+  watermarks.forEach((wm) => {
+    const x = (wm.x / 100) * width;
+    const y = (wm.y / 100) * height;
+    const isSelected = wm.id === selectedId;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate((angle * Math.PI) / 180);
+
+    // 绘制边框背景（选中时高亮）
+    const boxWidth = textWidth + padding * 2;
+    const boxHeight = textHeight + padding * 2;
+    
+    ctx.strokeStyle = isSelected ? '#3b82f6' : 'rgba(0, 0, 0, 0.3)';
+    ctx.lineWidth = isSelected ? 2 : 1;
+    ctx.setLineDash(isSelected ? [] : [4, 4]);
+    ctx.strokeRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight);
+    ctx.setLineDash([]);
+
+    // 绘制水印文字
+    ctx.fillStyle = hexToRgba(color, opacity / 100);
+    ctx.fillText(text, 0, 0);
+
+    ctx.restore();
+  });
+}
+
+// 颜色转换：hex -> rgba（导出供外部使用）
+export function hexToRgbaPublic(hex: string, alpha: number): string {
+  return hexToRgba(hex, alpha);
 }
 
 // 批量水印（固定位置）

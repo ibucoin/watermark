@@ -7,13 +7,14 @@ import { cn } from '@/lib/utils';
 interface ImageUploaderProps {
   onImagesAdd: (images: ImageData[]) => void;
   mode: WatermarkMode;
+  existingImages?: ImageData[];
 }
 
 // 支持的图片格式
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
-export function ImageUploader({ onImagesAdd, mode }: ImageUploaderProps) {
+export function ImageUploader({ onImagesAdd, mode, existingImages = [] }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

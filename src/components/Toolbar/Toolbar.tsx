@@ -1,22 +1,24 @@
-import type { WatermarkConfig, WatermarkMode, AnchorPosition, ExportFormat } from '@/types/watermark';
+import type { WatermarkConfig, WatermarkMode, ExportFormat, ImageData } from '@/types/watermark';
+import { defaultWatermarkConfig } from '@/types/watermark';
 import { ModeSelector } from './ModeSelector';
 import { SliderControl } from './SliderControl';
 import { ColorPicker } from './ColorPicker';
-import { PositionSelector } from './PositionSelector';
 import { ExportButton } from '../Export/ExportButton';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { RotateCcw } from 'lucide-react';
 
 interface ToolbarProps {
   config: WatermarkConfig;
   mode: WatermarkMode;
-  anchor: AnchorPosition;
   exportFormat: ExportFormat;
   jpgQuality: number;
   hasImages: boolean;
+  images: ImageData[];
+  currentImage: ImageData | undefined;
   onConfigChange: (updates: Partial<WatermarkConfig>) => void;
   onModeChange: (mode: WatermarkMode) => void;
-  onAnchorChange: (anchor: AnchorPosition) => void;
   onExportFormatChange: (format: ExportFormat) => void;
   onJpgQualityChange: (quality: number) => void;
 }
@@ -24,21 +26,35 @@ interface ToolbarProps {
 export function Toolbar({
   config,
   mode,
-  anchor,
   exportFormat,
   jpgQuality,
   hasImages,
+  images,
+  currentImage,
   onConfigChange,
   onModeChange,
-  onAnchorChange,
   onExportFormatChange,
   onJpgQualityChange,
 }: ToolbarProps) {
+  // 重置配置
+  const handleReset = () => {
+    onConfigChange(defaultWatermarkConfig);
+  };
+
   return (
     <div className="p-4 space-y-6">
       {/* Logo 和标题 */}
-      <div className="pb-4 border-b">
+      <div className="pb-4 border-b flex items-center justify-between">
         <h2 className="text-xl font-bold">水印设置</h2>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleReset}
+          title="重置为推荐配置"
+        >
+          <RotateCcw className="w-4 h-4 mr-1" />
+          重置
+        </Button>
       </div>
 
       {/* 模式选择 */}
@@ -113,11 +129,10 @@ export function Toolbar({
         />
       )}
 
-      {/* 位置选择器（仅批量模式） */}
+      {/* 批量模式提示 */}
       {mode === 'batch' && (
-        <div className="space-y-2">
-          <Label>水印位置</Label>
-          <PositionSelector value={anchor} onChange={onAnchorChange} />
+        <div className="p-3 bg-muted rounded-lg text-sm text-muted-foreground">
+          💡 在图片上拖拽水印来调整位置，所有图片将使用相同的相对位置。
         </div>
       )}
 
@@ -127,6 +142,9 @@ export function Toolbar({
           exportFormat={exportFormat}
           jpgQuality={jpgQuality}
           hasImages={hasImages}
+          images={images}
+          currentImage={currentImage}
+          mode={mode}
           onExportFormatChange={onExportFormatChange}
           onJpgQualityChange={onJpgQualityChange}
         />

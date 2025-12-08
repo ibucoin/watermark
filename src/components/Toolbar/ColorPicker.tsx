@@ -1,4 +1,5 @@
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 interface ColorPickerProps {
   value: string;
@@ -7,6 +8,7 @@ interface ColorPickerProps {
 
 // 预设颜色
 const presetColors = [
+  '#333333', // 深灰色（推荐）
   '#000000', // 黑色
   '#ffffff', // 白色
   '#ef4444', // 红色
@@ -17,6 +19,18 @@ const presetColors = [
   '#8b5cf6', // 紫色
 ];
 
+// 判断颜色是否为浅色（需要显示边框）
+function isLightColor(hex: string): boolean {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return false;
+  const r = parseInt(result[1], 16);
+  const g = parseInt(result[2], 16);
+  const b = parseInt(result[3], 16);
+  // 使用亮度公式判断
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.8;
+}
+
 export function ColorPicker({ value, onChange }: ColorPickerProps) {
   return (
     <div className="space-y-2">
@@ -26,12 +40,17 @@ export function ColorPicker({ value, onChange }: ColorPickerProps) {
           <button
             key={color}
             type="button"
-            className={`w-7 h-7 rounded-md border-2 transition-all ${
-              value === color ? 'border-primary scale-110' : 'border-transparent'
-            }`}
+            className={cn(
+              'w-7 h-7 rounded-md border-2 transition-all',
+              value === color 
+                ? 'border-primary scale-110' 
+                : isLightColor(color) 
+                  ? 'border-gray-300' // 浅色显示边框
+                  : 'border-transparent'
+            )}
             style={{ backgroundColor: color }}
             onClick={() => onChange(color)}
-            title={color}
+            title={color === '#333333' ? `${color} (推荐)` : color}
           />
         ))}
       </div>
