@@ -51,6 +51,8 @@ export interface ImageData {
   url: string;
   width: number;
   height: number;
+  // 该图片独立的文本框列表（可选，如果为空则使用全局 textBoxes）
+  textBoxes?: TextBox[];
 }
 
 // 水印编辑器状态
@@ -69,6 +71,8 @@ export interface WatermarkState {
   exportFormat: ExportFormat;
   // JPG 质量 0-100
   jpgQuality: number;
+  // 批量同步水印（将第一张图片的水印应用到所有图片）
+  batchSync: boolean;
 }
 
 // 默认文本框样式
@@ -100,7 +104,7 @@ export function createTextBox(overrides?: Partial<TextBox>): TextBox {
     id: generateTextBoxId(),
     text: '输入水印',
     x: 50,
-    y: 50,
+    y: 15, // 默认在图片顶部（15%位置）
     width: 20, // 默认宽度为图片宽度的 20%
     angle: 0,
     style: { ...defaultTextBoxStyle },
@@ -117,6 +121,7 @@ export const defaultWatermarkState: WatermarkState = {
   currentImageIndex: 0,
   exportFormat: 'png',
   jpgQuality: 90,
+  batchSync: false,
 };
 
 // ============ 兼容旧代码的类型（将在后续清理） ============

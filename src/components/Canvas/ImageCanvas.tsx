@@ -3,7 +3,7 @@ import type { ImageData, TextBox, TextBoxStyle, TileWatermarkConfig, ExportForma
 import { renderTileWatermark, renderTextBoxes, getTextBoxAtPosition, getHandleAtPosition, exportImage, downloadBlob, type HandleType } from '@/utils/watermark';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { X, Plus, Trash2, ZoomIn, ZoomOut, Type, Palette, Eye, Copy } from 'lucide-react';
+import { X, Plus, Trash2, ZoomIn, ZoomOut, Type, Palette, Eye, Copy, CopyPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import JSZip from 'jszip';
 
@@ -23,11 +23,13 @@ interface ImageCanvasProps {
   tileConfig: TileWatermarkConfig;
   exportFormat: ExportFormat;
   jpgQuality: number;
+  batchSync: boolean;
   onSelectTextBox: (id: string | null) => void;
   onUpdateTextBox: (id: string, updates: Partial<TextBox>) => void;
   onUpdateTextBoxStyle: (id: string, updates: Partial<TextBoxStyle>) => void;
   onDuplicateTextBox: (id: string) => void;
   onRemoveTextBox: (id: string) => void;
+  onCopyToImages: (textBoxId: string, targetIndices: number[]) => void;
   onImageSelect: (index: number) => void;
   onImageRemove: (index: number) => void;
   onImagesAdd: (images: ImageData[]) => void;
@@ -44,11 +46,13 @@ export function ImageCanvas({
   tileConfig,
   exportFormat,
   jpgQuality,
+  batchSync,
   onSelectTextBox,
   onUpdateTextBox,
   onUpdateTextBoxStyle,
   onDuplicateTextBox,
   onRemoveTextBox,
+  onCopyToImages,
   onImageSelect,
   onImageRemove,
   onImagesAdd,
@@ -66,11 +70,30 @@ export function ImageCanvas({
   const [fitZoom, setFitZoom] = useState(100); // 适配容器的缩放值
   const [isEditing, setIsEditing] = useState(false); // 是否正在编辑文本
   const [editingText, setEditingText] = useState(''); // 编辑中的文本
+  const [hoveredTextBoxId, setHoveredTextBoxId] = useState<string | null>(null); // 悬停的文本框 ID
+  const [showCopyToMenu, setShowCopyToMenu] = useState(false); // 显示复制到其他图片菜单
+  const [showBatchHint, setShowBatchHint] = useState(false); // 显示批量模式提示
 
   // 计算实际缩放比例（基于适配缩放）
   const scale = (fitZoom / 100) * (zoom / 100);
+  
+  // 批量模式下是否可编辑（只有第一张图片可编辑）
+  const isEditable = !batchSync || currentIndex === 0;
 
-  // 加载图片并计算适配缩放
+  // 批量模式下非第一张图片时，显示提示并在2秒后自动消失
+  useEffect(() => {
+    if (batchSync && currentIndex !== 0) {
+      setShowBatchHint(true);
+      const timer = setTimeout(() => {
+        setShowBatchHint(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowBatchHint(false);
+    }
+  }, [batchSync, currentIndex]);
+
+  // 加载图片并计算适配缩放（首次加载时）
   useEffect(() => {
     if (!image) return;
 
@@ -78,7 +101,7 @@ export function ImageCanvas({
     img.onload = () => {
       setLoadedImage(img);
       
-      // 计算适配容器的缩放比例
+      // 计算适配容器的缩放比例（首次加载时）
       const container = containerRef.current;
       if (container) {
         const containerRect = container.getBoundingClientRect();
@@ -88,13 +111,11 @@ export function ImageCanvas({
         const fitScale = Math.min(
           maxWidth / img.naturalWidth,
           maxHeight / img.naturalHeight,
-          1 // 不放大
+          1 // 不放大超过原始尺寸
         );
         setFitZoom(fitScale * 100);
       }
-      
-      // 重置缩放到 100%
-      setZoom(100);
+      // 注意：不重置 zoom，保持用户之前设置的缩放比例
     };
     img.src = image.url;
 
@@ -145,11 +166,13 @@ export function ImageCanvas({
         fontSize: tb.style.fontSize * scale,
       },
     }));
-    renderTextBoxes(ctx, displayWidth, displayHeight, scaledTextBoxes, selectedTextBoxId, true);
-  }, [loadedImage, textBoxes, selectedTextBoxId, tileConfig, scale]);
+    renderTextBoxes(ctx, displayWidth, displayHeight, scaledTextBoxes, selectedTextBoxId, true, hoveredTextBoxId);
+  }, [loadedImage, textBoxes, selectedTextBoxId, tileConfig, scale, hoveredTextBoxId]);
 
   // 处理双击编辑
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isEditable) return; // 批量模式下非第一张图片不可编辑
+    
     const canvas = canvasRef.current;
     if (!canvas || !loadedImage) return;
 
@@ -174,11 +197,12 @@ export function ImageCanvas({
         inputRef.current?.select();
       }, 0);
     }
-  }, [loadedImage, textBoxes, scale, onSelectTextBox]);
+  }, [isEditable, loadedImage, textBoxes, scale, onSelectTextBox]);
 
   // 处理鼠标按下
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isEditing) return; // 编辑模式下不处理拖拽
+    if (!isEditable) return; // 批量模式下非第一张图片不可操作
 
     const canvas = canvasRef.current;
     if (!canvas || !loadedImage) return;
@@ -221,12 +245,10 @@ export function ImageCanvas({
       onSelectTextBox(null);
       setIsEditing(false);
     }
-  }, [isEditing, loadedImage, textBoxes, selectedTextBoxId, scale, onSelectTextBox]);
+  }, [isEditing, isEditable, loadedImage, textBoxes, selectedTextBoxId, scale, onSelectTextBox]);
 
   // 处理鼠标移动
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging || !selectedTextBoxId || !dragHandle) return;
-    
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -234,38 +256,59 @@ export function ImageCanvas({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const selectedBox = textBoxes.find(tb => tb.id === selectedTextBoxId);
-    if (!selectedBox) return;
+    // 如果正在拖拽（只有可编辑时才处理）
+    if (isDragging && selectedTextBoxId && dragHandle && isEditable) {
+      const selectedBox = textBoxes.find(tb => tb.id === selectedTextBoxId);
+      if (!selectedBox) return;
 
-    if (dragHandle === 'move') {
-      // 移动文本框
-      const deltaX = ((x - dragStartPos.x) / rect.width) * 100;
-      const deltaY = ((y - dragStartPos.y) / rect.height) * 100;
-      
-      const newX = Math.max(5, Math.min(95, selectedBox.x + deltaX));
-      const newY = Math.max(5, Math.min(95, selectedBox.y + deltaY));
-      
-      onUpdateTextBox(selectedTextBoxId, { x: newX, y: newY });
-      setDragStartPos({ x, y });
-    } else if (dragHandle === 'rotate') {
-      // 旋转文本框
-      const centerX = (selectedBox.x / 100) * rect.width;
-      const centerY = (selectedBox.y / 100) * rect.height;
-      const angle = Math.atan2(y - centerY, x - centerX) * (180 / Math.PI) + 90;
-      onUpdateTextBox(selectedTextBoxId, { angle: Math.round(angle) });
-    } else if (dragHandle?.startsWith('resize')) {
-      // 调整大小
-      const deltaX = x - dragStartPos.x;
-      const newWidth = Math.max(10, Math.min(80, selectedBox.width + (deltaX / rect.width) * 100));
-      onUpdateTextBox(selectedTextBoxId, { width: newWidth });
-      setDragStartPos({ x, y });
+      if (dragHandle === 'move') {
+        // 移动文本框
+        const deltaX = ((x - dragStartPos.x) / rect.width) * 100;
+        const deltaY = ((y - dragStartPos.y) / rect.height) * 100;
+        
+        const newX = Math.max(5, Math.min(95, selectedBox.x + deltaX));
+        const newY = Math.max(5, Math.min(95, selectedBox.y + deltaY));
+        
+        onUpdateTextBox(selectedTextBoxId, { x: newX, y: newY });
+        setDragStartPos({ x, y });
+      } else if (dragHandle === 'rotate') {
+        // 旋转文本框
+        const centerX = (selectedBox.x / 100) * rect.width;
+        const centerY = (selectedBox.y / 100) * rect.height;
+        const angle = Math.atan2(y - centerY, x - centerX) * (180 / Math.PI) + 90;
+        onUpdateTextBox(selectedTextBoxId, { angle: Math.round(angle) });
+      } else if (dragHandle?.startsWith('resize')) {
+        // 调整大小
+        const deltaX = x - dragStartPos.x;
+        const newWidth = Math.max(10, Math.min(80, selectedBox.width + (deltaX / rect.width) * 100));
+        onUpdateTextBox(selectedTextBoxId, { width: newWidth });
+        setDragStartPos({ x, y });
+      }
+    } else if (isEditable) {
+      // 检测悬停的文本框（只有可编辑时才显示 hover 效果）
+      const scaledTextBoxes = textBoxes.map(tb => ({
+        ...tb,
+        style: { ...tb.style, fontSize: tb.style.fontSize * scale },
+      }));
+      const hoveredBox = getTextBoxAtPosition(x, y, rect.width, rect.height, scaledTextBoxes);
+      setHoveredTextBoxId(hoveredBox?.id || null);
+    } else {
+      // 不可编辑时清除 hover 状态
+      setHoveredTextBoxId(null);
     }
-  }, [isDragging, selectedTextBoxId, dragHandle, dragStartPos, textBoxes, onUpdateTextBox]);
+  }, [isDragging, selectedTextBoxId, dragHandle, dragStartPos, textBoxes, scale, isEditable, onUpdateTextBox]);
 
   // 处理鼠标松开
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
     setDragHandle(null);
+  }, []);
+
+  // 处理鼠标离开
+  const handleMouseLeave = useCallback(() => {
+    setIsDragging(false);
+    setDragHandle(null);
+    setHoveredTextBoxId(null);
   }, []);
 
   // 处理文本编辑完成
@@ -307,7 +350,7 @@ export function ImageCanvas({
 
     window.addEventListener('watermark:export', handleExport);
     return () => window.removeEventListener('watermark:export', handleExport);
-  }, [loadedImage, images, textBoxes, tileConfig, exportFormat, jpgQuality, isExporting]);
+  }, [loadedImage, images, textBoxes, tileConfig, exportFormat, jpgQuality, batchSync, currentIndex, isExporting]);
 
   // 获取文件名（不含扩展名）
   const getFileName = (file: File): string => {
@@ -363,13 +406,26 @@ export function ImageCanvas({
 
       ctx.drawImage(img, 0, 0);
       
-      // 渲染平铺水印
+      // 渲染平铺水印（如果启用，所有图片都应用）
       if (tileConfig.enabled) {
         renderTileWatermark(ctx, canvas.width, canvas.height, tileConfig);
       }
       
-      // 渲染文本框
-      renderTextBoxes(ctx, canvas.width, canvas.height, textBoxes, null, false);
+      // 确定要渲染的文本框
+      // 批量模式：所有图片使用传入的 textBoxes（全局水印）
+      // 独立模式：每张图片使用自己的 textBoxes
+      if (batchSync) {
+        // 批量模式：所有图片使用相同的水印
+        if (textBoxes.length > 0) {
+          renderTextBoxes(ctx, canvas.width, canvas.height, textBoxes, null, false);
+        }
+      } else {
+        // 独立模式：使用图片自己的水印
+        const imageTextBoxes = imgData.textBoxes || [];
+        if (imageTextBoxes.length > 0) {
+          renderTextBoxes(ctx, canvas.width, canvas.height, imageTextBoxes, null, false);
+        }
+      }
 
       const originalName = getFileName(imgData.file);
       const blob = await exportImage(canvas, exportFormat, jpgQuality, '');
@@ -480,8 +536,8 @@ export function ImageCanvas({
           </Button>
         </div>
 
-        {/* 浮动工具栏 - 选中文本框时显示 */}
-        {selectedTextBox && (
+        {/* 浮动工具栏 - 选中文本框时显示（批量模式下非第一张图片不显示） */}
+        {selectedTextBox && isEditable && (
           <div className="flex items-center divide-x border-l pl-4">
             {/* 字体大小 */}
             <div className="flex items-center gap-2 pr-4">
@@ -558,6 +614,58 @@ export function ImageCanvas({
               >
                 <Copy className="w-4 h-4" />
               </Button>
+              {images.length > 1 && (
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowCopyToMenu(!showCopyToMenu)}
+                    title="复制到其他图片"
+                    className="h-7 w-7 p-0"
+                  >
+                    <CopyPlus className="w-4 h-4" />
+                  </Button>
+                  {showCopyToMenu && (
+                    <div className="absolute top-full right-0 mt-1 bg-popover border rounded-md shadow-lg z-50 min-w-[160px] py-1">
+                      <div className="px-3 py-1.5 text-xs text-muted-foreground border-b">
+                        复制到其他图片
+                      </div>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent transition-colors"
+                        onClick={() => {
+                          const allIndices = images.map((_, i) => i).filter(i => i !== currentIndex);
+                          onCopyToImages(selectedTextBox.id, allIndices);
+                          setShowCopyToMenu(false);
+                        }}
+                      >
+                        全部图片
+                      </button>
+                      <div className="border-t my-1" />
+                      {images.map((img, index) => (
+                        index !== currentIndex && (
+                          <button
+                            key={img.url}
+                            type="button"
+                            className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent transition-colors flex items-center gap-2"
+                            onClick={() => {
+                              onCopyToImages(selectedTextBox.id, [index]);
+                              setShowCopyToMenu(false);
+                            }}
+                          >
+                            <img
+                              src={img.url}
+                              alt={`Image ${index + 1}`}
+                              className="w-6 h-6 object-cover rounded"
+                            />
+                            <span>图片 {index + 1}</span>
+                          </button>
+                        )
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -572,23 +680,41 @@ export function ImageCanvas({
         )}
       </div>
 
-      {/* Canvas 预览区域 */}
+      {/* Canvas 预览区域 - 支持滚动查看 */}
       <div
         ref={containerRef}
-        className="flex-1 flex items-center justify-center bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2210%22%20height%3D%2210%22%20fill%3D%22%23f0f0f0%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2210%22%20width%3D%2210%22%20height%3D%2210%22%20fill%3D%22%23f0f0f0%22%2F%3E%3C%2Fsvg%3E')] rounded-lg overflow-auto relative"
+        className="flex-1 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2210%22%20height%3D%2210%22%20fill%3D%22%23f0f0f0%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2210%22%20width%3D%2210%22%20height%3D%2210%22%20fill%3D%22%23f0f0f0%22%2F%3E%3C%2Fsvg%3E')] rounded-lg overflow-auto relative"
       >
-        <canvas
-          ref={canvasRef}
-          className={cn(
-            'shadow-lg',
-            isDragging ? 'cursor-grabbing' : 'cursor-default'
-          )}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onDoubleClick={handleDoubleClick}
-        />
+        {/* 批量模式下非第一张图片的提示（2秒后自动消失） */}
+        {showBatchHint && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-amber-100 text-amber-800 px-4 py-2 rounded-lg shadow-md text-sm flex items-center gap-2 pointer-events-auto animate-in fade-in duration-200">
+            <span>批量水印模式下，请切换到第一张图片进行编辑</span>
+            <button
+              type="button"
+              className="text-amber-600 hover:text-amber-800 underline"
+              onClick={() => onImageSelect(0)}
+            >
+              切换到第一张
+            </button>
+          </div>
+        )}
+        {/* 内部容器：使用 inline-flex 确保内容可以超出容器并触发滚动 */}
+        <div className="inline-flex min-w-full min-h-full items-center justify-center p-4">
+          <canvas
+            ref={canvasRef}
+            className={cn(
+              'shadow-lg',
+              !isEditable ? 'cursor-not-allowed' :
+              isDragging ? 'cursor-grabbing' : 
+              hoveredTextBoxId ? 'cursor-pointer' : 'cursor-default'
+            )}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseLeave}
+            onDoubleClick={handleDoubleClick}
+          />
+        </div>
 
         {/* 文本编辑输入框 */}
         {isEditing && editPosition && (
@@ -599,7 +725,7 @@ export function ImageCanvas({
             onChange={(e) => setEditingText(e.target.value)}
             onBlur={handleEditComplete}
             onKeyDown={handleKeyDown}
-            className="absolute bg-white border-2 border-primary rounded px-2 py-1 text-center outline-none shadow-lg"
+            className="absolute bg-white border-2 border-primary rounded px-2 py-1 text-center outline-none shadow-lg z-10"
             style={{
               left: editPosition.x,
               top: editPosition.y,

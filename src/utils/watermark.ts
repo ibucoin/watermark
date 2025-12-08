@@ -53,7 +53,8 @@ export function renderTextBox(
   height: number,
   textBox: TextBox,
   isSelected: boolean,
-  showControls: boolean = true // 是否显示控制手柄（导出时设为 false）
+  showControls: boolean = true, // 是否显示控制手柄（导出时设为 false）
+  isHovered: boolean = false // 是否悬停状态
 ) {
   const { text, x, y, width: boxWidth, angle, style } = textBox;
   const { color, opacity, fontSize } = style;
@@ -84,16 +85,16 @@ export function renderTextBox(
   ctx.translate(actualX, actualY);
   ctx.rotate((angle * Math.PI) / 180);
 
-  // 绘制边框（仅在预览且选中时显示）
+  // 绘制边框和控制手柄
   if (showControls) {
-    ctx.strokeStyle = isSelected ? '#3b82f6' : 'rgba(100, 100, 100, 0.5)';
-    ctx.lineWidth = isSelected ? 2 : 1;
-    ctx.setLineDash(isSelected ? [] : [4, 4]);
-    ctx.strokeRect(-boxWidthPx / 2, -boxHeightPx / 2, boxWidthPx, boxHeightPx);
-    ctx.setLineDash([]);
-
-    // 绘制控制手柄（仅选中时）
+    // 选中状态：显示实线边框和控制手柄
     if (isSelected) {
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.strokeRect(-boxWidthPx / 2, -boxHeightPx / 2, boxWidthPx, boxHeightPx);
+
+      // 绘制控制手柄
       const handleSize = 8;
       ctx.fillStyle = '#3b82f6';
       
@@ -121,7 +122,16 @@ export function renderTextBox(
       ctx.moveTo(0, -boxHeightPx / 2);
       ctx.lineTo(0, rotateHandleY + handleSize / 2);
       ctx.stroke();
+    } else if (isHovered) {
+      // 悬停状态：显示半透明背景高亮
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.1)';
+      ctx.fillRect(-boxWidthPx / 2, -boxHeightPx / 2, boxWidthPx, boxHeightPx);
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+      ctx.strokeRect(-boxWidthPx / 2, -boxHeightPx / 2, boxWidthPx, boxHeightPx);
     }
+    // 未选中且未悬停：不显示边框
   }
 
   // 绘制文字
@@ -144,11 +154,13 @@ export function renderTextBoxes(
   height: number,
   textBoxes: TextBox[],
   selectedId: string | null,
-  showControls: boolean = true
+  showControls: boolean = true,
+  hoveredId: string | null = null
 ) {
   textBoxes.forEach((textBox) => {
     const isSelected = textBox.id === selectedId;
-    renderTextBox(ctx, width, height, textBox, isSelected, showControls);
+    const isHovered = textBox.id === hoveredId;
+    renderTextBox(ctx, width, height, textBox, isSelected, showControls, isHovered);
   });
 }
 

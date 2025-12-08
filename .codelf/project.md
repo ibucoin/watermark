@@ -4,7 +4,7 @@
 
 > **项目目的**: 实现"即开即用"和"隐私安全"（图片不上传服务器），支持可交互文本框水印和平铺水印。
 
-> **项目状态**: 重构中 - 正在实现新的单一窗口布局和可交互文本框
+> **项目状态**: 开发中 - 已完成核心功能，持续优化用户体验
 
 > **项目团队**: 独立开发者
 
@@ -102,10 +102,10 @@ root
 ```
 
 ### 核心文件说明
-- `src/types/watermark.ts`: 定义 TextBox、TileWatermarkConfig、WatermarkState 等类型
-- `src/utils/watermark.ts`: 水印渲染逻辑（文本框渲染、平铺渲染）和导出功能
+- `src/types/watermark.ts`: 定义 TextBox、TileWatermarkConfig、WatermarkState、ImageData 等类型
+- `src/utils/watermark.ts`: 水印渲染逻辑（文本框渲染、平铺渲染、hover 状态）和导出功能
 - `src/components/WatermarkEditor.tsx`: 主状态管理和组件组合（新架构）
-- `src/components/Canvas/ImageCanvas.tsx`: Canvas 渲染和交互（支持文本框拖拽/旋转/调整大小）
+- `src/components/Canvas/ImageCanvas.tsx`: Canvas 渲染和交互（支持文本框拖拽/旋转/调整大小/缩放滚动/hover 高亮）
 - `src/components/Toolbar/FloatingToolbar.tsx`: 浮动工具栏（选中文本框时显示）
 - `src/components/Toolbar/TileConfigPanel.tsx`: 平铺水印配置面板
 
@@ -114,3 +114,7 @@ root
 - 移除了三种模式切换（平铺/单个/批量），统一为文本框操作
 - 平铺水印改为可选配置项，可与文本框水印共存
 - 底部保留缩略图批量加载功能
+- 支持放大缩小后滚动查看完整画面
+- 批量水印开关：只有开启时才同步水印到所有图片
+- 水印 hover 高亮效果，移除未选中时的虚线框
+- 支持复制水印到其他图片（每张图片可有独立水印）
