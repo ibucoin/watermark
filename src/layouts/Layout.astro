@@ -3,9 +3,41 @@ import '@/styles/globals.css';
 
 interface Props {
   title?: string;
+  description?: string;
 }
 
-const { title = '图片水印工具' } = Astro.props;
+const siteName = '图片水印工具';
+const defaultDescription = '免费在线图片水印工具，支持平铺、单个、批量水印，纯前端处理，保护您的隐私。无需上传，浏览器端处理，安全快速。';
+
+const { 
+  title = siteName,
+  description = defaultDescription
+} = Astro.props;
+
+const fullTitle = title === siteName ? title : `${title} - ${siteName}`;
+const canonicalURL = Astro.url.href;
+
+// 结构化数据 - WebApplication Schema
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": siteName,
+  "description": defaultDescription,
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Web Browser",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "CNY"
+  },
+  "featureList": [
+    "平铺水印",
+    "单个自由水印",
+    "批量固定水印",
+    "PNG/JPG导出",
+    "纯前端处理"
+  ]
+};
 ---
 
 <!doctype html>
@@ -15,8 +47,32 @@ const { title = '图片水印工具' } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
-    <meta name="description" content="免费在线图片水印工具，支持平铺、单个、批量水印，纯前端处理，保护您的隐私" />
-    <title>{title}</title>
+    
+    <!-- 基础 SEO -->
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalURL} />
+    
+    <!-- Open Graph / Facebook / 微信 -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:locale" content="zh_CN" />
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    
+    <!-- 其他 SEO 标签 -->
+    <meta name="robots" content="index, follow" />
+    <meta name="author" content={siteName} />
+    <meta name="keywords" content="图片水印,水印工具,在线水印,批量水印,免费水印,图片保护,版权保护" />
+    
+    <!-- 结构化数据 -->
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   </head>
   <body class="min-h-screen bg-background font-sans antialiased">
     <slot />

@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+
+# Sitemap location (update domain after deployment)
+# Sitemap: https://your-domain.com/sitemap-index.xml
+
