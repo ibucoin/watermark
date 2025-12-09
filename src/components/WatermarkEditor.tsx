@@ -7,7 +7,7 @@ import { TileConfigPanel } from './Toolbar/TileConfigPanel';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Plus, Grid3X3, Download, Layers } from 'lucide-react';
+import { Plus, Grid3X3, Download, Layers, Github } from 'lucide-react';
 
 export function WatermarkEditor() {
   const [state, setState] = useState<WatermarkState>(defaultWatermarkState);
@@ -325,6 +325,15 @@ export function WatermarkEditor() {
               </Button>
             </>
           )}
+          <a
+            href="https://github.com/ibucoin/watermark"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border border-neutral-700 bg-neutral-900 text-white hover:bg-neutral-800 transition-colors"
+          >
+            <Github className="w-4 h-4" />
+            <span>View on GitHub</span>
+          </a>
         </div>
       </header>
 
